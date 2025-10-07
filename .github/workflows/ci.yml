@@ -32,8 +32,28 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install pytest requests
-          pytest -q tests/smoke_test.py  
+          pytest -q tests/smoke_test.py 
 
-      - name: Build Docker image
+      - name: Build image (local)
+        env:
+          IMAGE_REF: local/test:latest 
+          run: docker build -t $IMAGE_REF .
+
+      - name: Run container
         run: |
-          docker build -t local/mlops-dev-docker:ci .
+          docker run -d --rm --name api -p 5001:5000 $IMAGE_REF
+          # boucle d'attente readiness (30s max)
+          for i in {1..30}; do
+          if curl -fsS http://localhost:5001/health >/dev/null; then
+           echo "API UP"; break
+          fi
+            echo "waiting API ($i)…"
+          sleep 1
+      if [ $i -eq 30 ]; then
+        echo "API did not start in time"
+        docker logs api || true
+        exit 1
+      fi
+      done
+     
+      
