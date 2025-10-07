@@ -45,13 +45,13 @@ COPY RandomForest.pkl      /app/model/RandomForest.pkl
 # COPY *.py /app/
 
 # -------- Exposition & lancement --------
-
-# … (build)
+# ... ton build
 EXPOSE 5000
+
+HEALTHCHECK --interval=5s --timeout=2s --retries=10 \
+  CMD curl -fsS http://localhost:5000/health || exit 1
+
 CMD ["gunicorn","-b","0.0.0.0:5000","app:app","--workers","1","--threads","4","--timeout","60"]
 
 
-# Gunicorn: 1 worker gthread + 8 threads = léger et suffisant pour dev/démo
-# Ajuste au besoin (workers/threads/timeouts)
-#CMD ["gunicorn", "-b", ""0.0.0.0:5000", \
-#     "--worker-class", "gthread", "--threads", "8", "app:app"]
+
