@@ -39,7 +39,7 @@ COPY RandomForest.pkl      /app/model/RandomForest.pkl
 
 # Configuration front lue par le formulaire (statique)
 # => Accessible côté navigateur à l’URL: /static/config.json
-COPY config.json           /app/static/config.json
+#COPY config.json           /app/static/config.json
 
 # (Optionnel) si tu as d’autres fichiers Python:
 # COPY *.py /app/
