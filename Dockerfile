@@ -29,9 +29,10 @@ COPY app.py                /app/app.py
 COPY templates/            /app/templates/
 
 # …
-COPY static/    /app/static/        # ← inclut static/config.json
-# …
-
+# … tes étapes avant
+COPY templates/ /app/templates/
+COPY static/config.json /app/static/config.json   # ← SANS slash en tête
+# … tes étapes après
 
 # Modèle ML
 COPY RandomForest.pkl      /app/model/RandomForest.pkl
