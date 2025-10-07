@@ -28,6 +28,11 @@ RUN mkdir -p /app/model /app/templates /app/static
 COPY app.py                /app/app.py
 COPY templates/            /app/templates/
 
+# …
+COPY static/    /app/static/        # ← inclut static/config.json
+# …
+
+
 # Modèle ML
 COPY RandomForest.pkl      /app/model/RandomForest.pkl
 
