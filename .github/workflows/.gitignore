@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+.venv*/
+.pytest_cache/
+*.log
+
+# OS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Modèles lourds temporaires (gardez seulement le bon)
+*.pkl
+!RandomForest.pkl
+model/*.pkl
+!model/RandomForest.pkl
+
+# Docker
+dist/
+build/
