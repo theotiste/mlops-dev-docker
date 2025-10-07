@@ -45,9 +45,13 @@ COPY config.json           /app/static/config.json
 # COPY *.py /app/
 
 # -------- Exposition & lancement --------
+
+# … (build)
 EXPOSE 5000
+CMD ["gunicorn","-b","0.0.0.0:5000","app:app","--workers","1","--threads","4","--timeout","60"]
+
 
 # Gunicorn: 1 worker gthread + 8 threads = léger et suffisant pour dev/démo
 # Ajuste au besoin (workers/threads/timeouts)
-CMD ["gunicorn", "-b", "0.0.0.0:5000", \
-     "--worker-class", "gthread", "--threads", "8", "app:app"]
+#CMD ["gunicorn", "-b", ""0.0.0.0:5000", \
+#     "--worker-class", "gthread", "--threads", "8", "app:app"]
