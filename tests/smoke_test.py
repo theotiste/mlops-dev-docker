@@ -1,6 +1,17 @@
-import json, urllib.request
+import os, requests
+
+API_URL = os.getenv("API_URL", "http://localhost:5001")
 
 def test_health():
-    with urllib.request.urlopen("http://localhost:5001/health") as r:
-        data = json.loads(r.read().decode())
-        assert data.get("ok") is True
+    r = requests.get(f"{API_URL}/health", timeout=5)
+    assert r.status_code == 200
+    assert r.json().get("ok") is True
+
+
+
+
+
+
+
+
+
