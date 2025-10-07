@@ -28,30 +28,17 @@ RUN mkdir -p /app/model /app/templates /app/static
 COPY app.py                /app/app.py
 COPY templates/            /app/templates/
 
-# …
-# … tes étapes avant
 COPY templates/ /app/templates/
-COPY static/config.json /app/static/config.json   # ← SANS slash en tête
-# … tes étapes après
+COPY static/config.json /app/static/config.json   
 
 # Modèle ML
-COPY RandomForest.pkl      /app/model/RandomForest.pkl
-
-# Configuration front lue par le formulaire (statique)
-# => Accessible côté navigateur à l’URL: /static/config.json
-#COPY config.json           /app/static/config.json
-
-# (Optionnel) si tu as d’autres fichiers Python:
-# COPY *.py /app/
+COPY RandomForest.pkl      /app/model/RandomForest.pkl=
 
 # -------- Exposition & lancement --------
-# ... ton build
 EXPOSE 5000
-
 HEALTHCHECK --interval=5s --timeout=2s --retries=10 \
   CMD curl -fsS http://localhost:5000/health || exit 1
-
-CMD ["gunicorn","-b","0.0.0.0:5000","app:app","--workers","1","--threads","4","--timeout","60"]
+  CMD ["gunicorn","-b","0.0.0.0:5000","app:app","--workers","1","--threads","4","--timeout","60"]
 
 
 
