@@ -27,8 +27,12 @@ jobs:
           pip install pytest
 
       - name: Smoke tests
+        env:
+          API_URL: http://localhost:5001
         run: |
-          pytest -q || exit 1
+          python -m pip install --upgrade pip
+          pip install pytest requests
+          pytest -q tests/smoke_test.py  
 
       - name: Build Docker image
         run: |
