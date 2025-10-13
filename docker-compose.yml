@@ -1,0 +1,6 @@
+services:
+  api:
+    build: .
+    ports:
+      - "5001:5000"    # on publie 5001 côté hôte -> 5000 dans le conteneur
+    restart: unless-stopped

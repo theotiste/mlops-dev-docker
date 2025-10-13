@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <title>Prédiction du cancer du sein</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    :root{
+      --bg:#ffffff; --card:#f7f8fb; --muted:#5b6678; --txt:#0b1220;
+      --primary:#2563eb; --primary-2:#1d4ed8; --ring:#93c5fd;
+      --border:#dbe2f1; --ok:#059669; --err:#dc2626;
+    }
+    *{box-sizing:border-box;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,'Helvetica Neue',Arial}
+    body{margin:0;background:var(--bg);color:var(--txt)}
+    .wrap{max-width:1150px;margin:40px auto;padding:0 16px}
+    h1{font-weight:800;letter-spacing:.25px;margin:0 0 16px}
+    .card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:18px}
+    .toolbar{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 12px}
+    select,button{border-radius:10px;border:1px solid var(--border);background:#fff;color:var(--txt);padding:10px 12px}
+    button.btn{background:var(--primary);color:#fff;border:1px solid #1f3d84}
+    button.btn:hover{background:var(--primary-2)}
+    button.ghost{background:#fff}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+    @media (max-width:860px){.grid{grid-template-columns:1fr}}
+    .field{display:flex;flex-direction:column;gap:8px;border:1px solid var(--border);border-radius:12px;padding:12px;background:#fff}
+    .field label{font-weight:700;font-size:14px}
+    .field input{border-radius:10px;border:1px solid var(--border);background:#fff;color:var(--txt);
+                 padding:10px 12px;outline:none}
+    .field input:focus{border-color:var(--ring);box-shadow:0 0 0 3px #1e40af55}
+    .hint{color:var(--muted);font-size:12px}
+    .msg{margin-top:10px}
+    .ok{color:var(--ok)} .error{color:var(--err)} .muted{color:var(--muted)}
+    .tip{text-align:center;color:var(--muted);font-size:13px;margin-top:6px}
+    .right{float:right;color:var(--muted);font-size:12px}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Prédiction du cancer du sein</h1>
+
+    <section class="card">
+      <div class="toolbar">
+        <select id="ex-select" aria-label="Choisir un échantillon">
+          <option value="0">Échantillon 1 (M)</option>
+          <option value="1">Échantillon 2 (B)</option>
+          <option value="2">Échantillon 3 (M)</option>
+          <option value="3">Échantillon 4 (B)</option>
+        </select>
+        <button id="btn-load" class="ghost" type="button">Charger</button>
+        <button id="btn-ex-fill" class="ghost" type="button">Tester l’échantillon</button>
+        <button id="btn-clear" class="ghost" type="button">Effacer</button>
+        <button id="btn-submit" class="btn" type="button">Lancer la prédiction</button>
+        <span id="cfg-badge" class="right">Config: —</span>
+      </div>
+
+      <form id="form" novalidate>
+        <p class="muted" style="margin:0 0 10px">
+          Saisissez les 30 caractéristiques. Les décimales peuvent être entrées avec
+          <strong>virgule</strong> ou <strong>point</strong> (ex : <code>12,34</code> ou <code>12.34</code>).
+        </p>
+        <div id="fields" class="grid"><!-- champs construits en JS --></div>
+        <p class="tip">Appel API : <code id="api-url">/predict</code> — URL déterminée via <code>/static/config.json</code> si présent, sinon same-origin.</p>
+        <p id="msg" class="msg muted"></p>
+      </form>
+    </section>
+  </div>
+
+<script>
+/* ===========================
+   1) Métadonnées des features
+   =========================== */
+const FEATURE_LABELS = [
+  "Radius Mean","Texture Mean","Perimeter Mean","Area Mean","Smoothness Mean","Compactness Mean",
+  "Concavity Mean","Concave Points Mean","Symmetry Mean","Fractal Dimension Mean",
+  "Radius SE","Texture SE","Perimeter SE","Area SE","Smoothness SE",
+  "Compactness SE","Concavity SE","Concave Points SE","Symmetry SE","Fractal Dimension SE",
+  "Radius Worst","Texture Worst","Perimeter Worst","Area Worst","Smoothness Worst",
+  "Compactness Worst","Concavity Worst","Concave Points Worst","Symmetry Worst","Fractal Dimension Worst"
+];
+// L’ordre des 30 valeurs est implicite (index 0..29) puisqu’on construit le formulaire dans cet ordre.
+
+/* ===========================
+   2) Échantillons d’exemple
+   =========================== */
+const EXAMPLE_VALUES = [
+  [17.99,10.38,122.8,1001,0.1184,0.2776,0.3001,0.1471,0.2419,0.07871,1.095,0.9053,8.589,153.4,0.0064,0.0490,0.0537,0.0159,0.0303,0.0062,25.38,17.33,184.6,2019,0.1622,0.6656,0.7119,0.2654,0.4601,0.1189],
+  [13.540,14.36,87.46,566.3,0.09779,0.08129,0.06664,0.047810,0.1885,0.05766,0.2699,0.7886,2.058,23.560,0.008462,0.014600,0.02387,0.013150,0.01980,0.002300,15.110,19.26,99.70,711.2,0.14400,0.17730,0.23900,0.12880,0.2977,0.07259],
+  [20.57,17.77,132.90,1326.0,0.08474,0.07864,0.08690,0.07017,0.1812,0.05667,0.5435,0.7339,3.398,74.08,0.005225,0.01308,0.01860,0.01340,0.01389,0.003532,24.99,23.41,158.80,1956.0,0.1238,0.1866,0.2416,0.1860,0.2750,0.08902],
+  [13.080,15.71,85.63,520.0,0.10750,0.12700,0.04568,0.031100,0.1967,0.06811,0.1852,0.7477,1.383,14.670,0.004097,0.018980,0.01698,0.006490,0.01678,0.0024215,14.500,20.49,96.09,630.5,0.13120,0.27760,0.18900,0.07283,0.3184,0.08183]
+];
+
+/* ===========================
+   3) Helpers DOM & parsing
+   =========================== */
+const byId = (id)=>document.getElementById(id);
+const grid = byId('fields');
+const $msg = byId('msg');
+const $api = byId('api-url');
+const $badge = byId('cfg-badge');
+
+function showMsg(txt, kind='muted'){ $msg.className=`msg ${kind}`; $msg.textContent=txt; }
+function getInputs(){ return Array.from(grid.querySelectorAll('input[data-index]')); }
+
+function parseNumber(str){
+  const s = (str ?? '').toString().trim().replace(',', '.');
+  const v = Number(s);
+  return Number.isFinite(v) ? v : NaN;
+}
+function clearAll(){ getInputs().forEach(i=>i.value=''); showMsg(''); }
+function fillValues(arr){
+  const inputs = getInputs();
+  for (let i=0;i<inputs.length;i++){ inputs[i].value = (arr[i] ?? '').toString().replace('.', ','); }
+  showMsg('Valeurs chargées.','ok');
+}
+
+/* Construit l’UI une seule fois */
+function buildUIIfEmpty(){
+  if (grid.childElementCount) return;
+  FEATURE_LABELS.forEach((label, i)=>{
+    const wrap = document.createElement('div'); wrap.className='field';
+    const lab  = document.createElement('label'); lab.htmlFor = `f${i}`; lab.textContent = `${i+1}) ${label}`;
+    const inp  = document.createElement('input');
+    inp.type='text'; inp.id=`f${i}`; inp.setAttribute('inputmode','decimal');
+    inp.setAttribute('data-index', i);
+    inp.placeholder = 'Ex: 12,34';
+    const hint = document.createElement('div'); hint.className='hint'; hint.textContent='Ex: 12,34 ou 12.34';
+    wrap.append(lab, inp, hint); grid.appendChild(wrap);
+  });
+}
+
+/* Pré-remplit depuis la session (si retour depuis la page résultat) */
+function prefillFromSession(){
+  try{
+    const v = sessionStorage.getItem('mlops:prefill');
+    if (!v) return;
+    const arr = JSON.parse(v);
+    if (Array.isArray(arr) && arr.length === FEATURE_LABELS.length){ buildUIIfEmpty(); fillValues(arr); }
+  }catch{}
+  try{ sessionStorage.removeItem('mlops:prefill'); }catch{}
+}
+
+/* Pré-remplit depuis l’URL: ?sample=2 ou ?features=[..] */
+function prefillFromURL(){
+  const q = new URLSearchParams(location.search);
+  const si = q.get('sample');
+  const fv = q.get('features');
+  if (fv){
+    try{
+      const arr = JSON.parse(fv);
+      if (Array.isArray(arr) && arr.length === FEATURE_LABELS.length){ fillValues(arr); return; }
+    }catch{}
+  }
+  if (si!=null){
+    const i = Number(si);
+    if (!Number.isNaN(i) && EXAMPLE_VALUES[i]) fillValues(EXAMPLE_VALUES[i]);
+  }
+}
+
+/* ===========================
+   4) URL d’API (config + fallback)
+   =========================== */
+function computeDefaultPredictUrl(){
+  // même origine (marche en dev http://localhost:5001 et derrière reverse-proxy)
+  return `${location.origin}/predict`;
+}
+
+async function resolvePredictUrl(){
+  // Essaye d’abord /static/config.json
+  try{
+    const r = await fetch('/static/config.json', { cache:'no-store', headers:{'Cache-Control':'no-store'} });
+    if (r.ok){
+      const cfg = await r.json();
+      const u = cfg?.predictUrl || cfg?.PredictUrl || cfg?.predictURL;
+      if (typeof u === 'string' && u.trim()){ return u; }
+    }
+  }catch{}
+  // Fallback same-origin
+  return computeDefaultPredictUrl();
+}
+
+/* ===========================
+   5) Init
+   =========================== */
+async function init(){
+  // Mémorise le chemin du formulaire (une seule fois)
+  try { if (!sessionStorage.getItem('mlops:formPath')) sessionStorage.setItem('mlops:formPath', window.location.pathname); } catch {}
+
+  buildUIIfEmpty();
+  prefillFromSession();
+  prefillFromURL();
+
+  byId('btn-clear').addEventListener('click', clearAll);
+  byId('btn-load').addEventListener('click', ()=>{ const i = Number(byId('ex-select').value)||0; fillValues(EXAMPLE_VALUES[i]); });
+  byId('btn-ex-fill').addEventListener('click', ()=>{ const i = Number(byId('ex-select').value)||0; fillValues(EXAMPLE_VALUES[i]); submitPrediction(); });
+  byId('btn-submit').addEventListener('click', submitPrediction);
+
+  // Détermine l’URL d’API
+  window.__PREDICT_URL__ = await resolvePredictUrl();
+  $api.textContent = window.__PREDICT_URL__;
+  $badge.textContent = 'Config: OK';
+}
+
+/* ===========================
+   6) Submit (inférence)
+   =========================== */
+async function submitPrediction(){
+  const inputs = getInputs();
+  if (inputs.length !== FEATURE_LABELS.length){
+    showMsg(`Formulaire incomplet : ${FEATURE_LABELS.length} champs requis.`, 'error'); return;
+  }
+  const vec = [];
+  for (const inp of inputs){
+    const v = parseNumber(inp.value);
+    if (!Number.isFinite(v)){ inp.focus(); showMsg(`Valeur invalide (utilisez 12,34 ou 12.34).`, 'error'); return; }
+    vec.push(v);
+  }
+  const url = window.__PREDICT_URL__;
+  if (!url){ showMsg('Configuration manquante : "predictUrl".', 'error'); return; }
+
+  // Timeout réseau (robuste)
+  const controller = new AbortController();
+  const timeout = setTimeout(()=>controller.abort(), 15000);
+
+  const btn = byId('btn-submit');
+  btn.disabled = true;
+  showMsg('Prédiction en cours…','muted');
+
+  try{
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type':'application/json' },
+      body: JSON.stringify({ features: vec }),
+      mode: 'cors',
+      cache: 'no-store',
+      signal: controller.signal
+    });
+
+    clearTimeout(timeout);
+
+    const data = await res.json().catch(()=> ({}));
+    if (!res.ok){
+      showMsg(`Erreur HTTP ${res.status}`, 'error');
+      return;
+    }
+
+    // Enrichissement minimal pour l’écran résultat (si le backend ne fournit pas tout)
+    const enriched = {
+      ...data,
+      model_version: data.model_version ?? 'v1',
+      request_id: data.request_id ?? (crypto.randomUUID?.() ?? String(Date.now())),
+      latency_ms: data.latency_ms ?? 0
+    };
+
+    // Stocke la prédiction + la saisie pour le retour
+    try{
+      sessionStorage.setItem('mlops:prediction', JSON.stringify(enriched));
+      sessionStorage.setItem('mlops:prefill', JSON.stringify(vec));
+      // NE PAS écraser mlops:formPath ici
+    }catch{}
+
+    showMsg('Prédiction effectuée. Redirection…','ok');
+    // Page de résultat autonome servie en statique
+    window.location.href = '/static/result_standalone.html';
+
+  } catch(err){
+    showMsg(`Échec réseau/CORS ou timeout : ${err}`, 'error');
+  } finally {
+    clearTimeout(timeout);
+    btn.disabled = false;
+  }
+}
+
+document.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>

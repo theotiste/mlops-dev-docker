@@ -1,0 +1,20 @@
+# Exemple minimal
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# dépendances
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# code + modèle
+COPY app.py .
+COPY RandomForest.pkl .
+
+# 🔴 important : copier tous les fichiers statiques
+COPY static/ ./static/
+
+ENV PYTHONUNBUFFERED=1
+EXPOSE 5000
+
+CMD ["gunicorn", "-b", "0.0.0.0:5000", "app:app"]

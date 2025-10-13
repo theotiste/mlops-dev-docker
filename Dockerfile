@@ -1,44 +1,23 @@
-# -------- Base image --------
-FROM python:3.12-slim AS base
+# Dockerfile
+FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-# Paquets système minimaux (certificats, curl pour le healthcheck optionnel)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates curl && \
-    rm -rf /var/lib/apt/lists/*
-
-# Répertoire de travail
 WORKDIR /app
 
-# -------- Dépendances Python --------
-# On copie d’abord uniquement le requirements.txt pour profiter du cache
-COPY requirements.txt /app/requirements.txt
+# 1) Déps
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Important : --no-cache-dir pour limiter la taille de l'image
-RUN pip install --upgrade pip && \
-    pip install --no-cache-dir -r /app/requirements.txt
+# 2) Code + modèle + front statique
+COPY app.py ./app.py
+COPY RandomForest.pkl ./RandomForest.pkl
+COPY static ./static
 
-# -------- Code & assets --------
-# Dossiers nécessaires
-RUN mkdir -p /app/model /app/templates /app/static
-
-# Code de l’app
-COPY app.py                /app/app.py
-COPY templates/            /app/templates/
-
-COPY templates/ /app/templates/
-COPY static/config.json /app/static/config.json   
-
-# Modèle ML
-COPY RandomForest.pkl      /app/model/RandomForest.pkl=
-
-# -------- Exposition & lancement --------
+# 3) Gunicorn (1 worker + threads suffisent pour une démo)
+ENV GUNICORN_CMD_ARGS="--workers=1 --threads=2 --timeout=60"
 EXPOSE 5000
-HEALTHCHECK --interval=5s --timeout=2s --retries=10 \
-  CMD curl -fsS http://localhost:5000/health || exit 1
-  CMD ["gunicorn","-b","0.0.0.0:5000","app:app","--workers","1","--threads","4","--timeout","60"]
 
-
-
+# 4) Démarrage
+CMD ["gunicorn", "-b", "0.0.0.0:5000", "app:app"]

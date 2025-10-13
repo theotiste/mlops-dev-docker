@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <title>Résultat de prédiction</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    :root{ --bg:#0b1220; --card:#121a2a; --muted:#a6b0c3; --txt:#e9eefc;
+           --ok:#10b981; --warn:#f59e0b; --err:#ef4444; --border:#243149; }
+    *{box-sizing:border-box;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,'Helvetica Neue',Arial}
+    body{margin:0;background:var(--bg);color:var(--txt)}
+    .wrap{max-width:900px;margin:48px auto;padding:0 16px}
+    .card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:18px}
+    .title{margin:0 0 10px}
+    .row{display:flex;gap:10px;flex-wrap:wrap}
+    button{border-radius:10px;border:1px solid var(--border);background:#0f172a;color:var(--txt);padding:10px 12px;cursor:pointer}
+    button.primary{background:#2563eb;border-color:#1f3d84}
+    .muted{color:var(--muted)}
+    .pill{display:inline-block;padding:4px 10px;border-radius:20px;border:1px solid var(--border)}
+    .ok{background:#093225;border-color:#115e45}
+    .warn{background:#3a2a08;border-color:#7c5c11}
+    pre{white-space:pre-wrap;background:#0a1228;border:1px solid var(--border);border-radius:12px;padding:12px;max-height:50vh;overflow:auto}
+    table{width:100%;border-collapse:collapse;margin-top:12px}
+    th,td{padding:8px 10px;border-bottom:1px solid var(--border);text-align:left}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+    @media (max-width:760px){.grid{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1 class="title">Résultat de prédiction</h1>
+
+    <section class="card">
+      <div id="status" class="muted">Chargement…</div>
+
+      <div class="grid" id="summary" style="display:none">
+        <div>
+          <h3>Décision</h3>
+          <p><strong>Classe prédite :</strong> <span id="label_text">—</span></p>
+          <p><span id="prob_pill" class="pill">p = <span id="proba">—</span></span></p>
+          <p class="muted" id="meta"></p>
+        </div>
+        <div>
+          <h3>Probabilités</h3>
+          <table>
+            <thead><tr><th>Classe</th><th>Probabilité</th></tr></thead>
+            <tbody id="probs"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <details style="margin-top:12px">
+        <summary>Voir le JSON brut</summary>
+        <pre id="raw">—</pre>
+      </details>
+
+      <div class="row" style="margin-top:14px">
+        <button id="back" class="">← Revenir au formulaire</button>
+        <button id="retry" class="primary">Refaire une prédiction</button>
+      </div>
+    </section>
+  </div>
+
+  <script>
+  
+  /* ---------- utils visu ---------- */
+  const CLASS_LABELS = {0:"Tumeur bénigne",1:"Tumeur maligne"};
+  const fmtPct = x => Number.isFinite(+x) ? (+x*100).toFixed(2)+'%' : '—';
+  const esc = s => String(s).replace(/[&<>"']/g, c=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+  const clamp01 = v => Math.max(0, Math.min(1, Number(v)));
+
+  /* ---------- normalisation agnostique backend ---------- */
+  function normalizePrediction(raw = {}) {
+    let pred, probsPair, pPred;
+    let { model_version, request_id, latency_ms } = raw;
+
+    // forme "hébergée": probabilities + labels_set
+    if (Array.isArray(raw.probabilities)) {
+      const arr = Array.isArray(raw.probabilities[0]) ? raw.probabilities[0] : raw.probabilities;
+      const labels = Array.isArray(raw.labels_set) && raw.labels_set.length === 2 ? raw.labels_set : ["B","M"];
+      const iB = labels.indexOf("B"), iM = labels.indexOf("M");
+      const pB = clamp01(arr[iB>=0?iB:0]); const pM = clamp01(arr[iM>=0?iM:1]);
+      probsPair = [pB,pM]; pred = pM>=pB?1:0; pPred = pred? pM:pB;
+    }
+
+    // forme locale: prediction + probability
+    if (!probsPair && ('prediction' in raw)) {
+      pred = Number(raw.prediction);
+      const p = raw.probability;
+      if (Array.isArray(p) && p.length>=2) {
+        probsPair = [clamp01(p[0]), clamp01(p[1])];
+        pPred = pred===1 ? probsPair[1] : probsPair[0];
+      } else if (Number.isFinite(+p)) {
+        const prob = clamp01(+p);
+        probsPair = pred===1 ? [1-prob, prob] : [prob, 1-prob];
+        pPred = prob;
+      }
+    }
+
+    if (!Array.isArray(probsPair)) probsPair = [NaN,NaN];
+    if (!Number.isFinite(pPred))   pPred     = Math.max(...probsPair.filter(Number.isFinite));
+    if (!Number.isFinite(pred))    pred      = (probsPair[1] >= probsPair[0]) ? 1 : 0;
+
+    return {
+      pred,
+      label_text: CLASS_LABELS[pred] ?? (raw.label_text ?? ''),
+      proba_predicted_class: pPred,
+      labels_set: ["B","M"],
+      probabilities: probsPair,
+      model_version, request_id, latency_ms
+    };
+  }
+
+  /* ---------- sources des données ---------- */
+  async function loadData() {
+    // 1) sessionStorage (formulaire local)
+    try {
+      const s = sessionStorage.getItem('mlops:prediction');
+      if (s) return JSON.parse(s);
+    } catch {}
+
+    const q = new URLSearchParams(location.search);
+
+    // 2) ?data= (JSON direct ou base64url)
+    if (q.has('data')) {
+      const raw = q.get('data');
+      try {
+        return JSON.parse(raw);               // JSON inline
+      } catch {
+        const b64 = raw.replace(/-/g,'+').replace(/_/g,'/'); // base64url → base64
+        const json = atob(b64);
+        return JSON.parse(json);
+      }
+    }
+
+    // 3) ?url= (fetch d'une ressource)
+    if (q.has('url')) {
+      const r = await fetch(q.get('url'), {cache:'no-store'});
+      if (r.ok) return r.json();
+    }
+
+    // 4) fallback conventionnel
+    try {
+      const r = await fetch('/static/last_prediction.json', {cache:'no-store'});
+      if (r.ok) return r.json();
+    } catch {}
+
+    return {};
+  }
+
+  function resolveFormPath(){
+    try { const p = sessionStorage.getItem('mlops:formPath'); if (p) return p; } catch {}
+    return "/form"; // fallback raisonnable côté serveur
+  }
+
+  function backToForm() {
+    window.location.href = resolveFormPath();
+  }
+
+  document.getElementById('back').addEventListener('click', backToForm);
+  document.getElementById('retry').addEventListener('click', ()=>{
+    try { sessionStorage.removeItem('mlops:prediction'); } catch {}
+    backToForm();
+  });
+
+  /* ---------- rendu ---------- */
+  async function render(){
+    const status = document.getElementById('status');
+    const summary= document.getElementById('summary');
+    const rawPre = document.getElementById('raw');
+    const probsT = document.getElementById('probs');
+
+    const raw = await loadData();
+    if (!raw || Object.keys(raw).length===0){
+      status.textContent = "Aucune prédiction trouvée.";
+      return;
+    }
+
+    const data = normalizePrediction(raw);
+
+    // décision + pastille
+    const labelText = data.label_text || (data.pred ? "Tumeur maligne" : "Tumeur bénigne"); // <-- fallback corrigé
+    document.getElementById('label_text').textContent = labelText;
+
+    const pill = document.getElementById('prob_pill');
+    document.getElementById('proba').textContent = fmtPct(data.proba_predicted_class);
+    pill.classList.remove('ok','warn');
+    if (Number.isFinite(data.proba_predicted_class)) {
+      pill.classList.add(data.proba_predicted_class >= 0.80 ? 'ok' : 'warn');
+    }
+
+    // meta
+    const bits = []; // <-- suppression du 'b' parasite
+    if (data.model_version) bits.push(`model_version: ${esc(data.model_version)}`);
+    if (data.request_id)   bits.push(`request_id: ${esc(data.request_id)}`);
+    if (Number.isFinite(+data.latency_ms)) bits.push(`latency: ${(+data.latency_ms).toFixed(0)} ms`);
+    document.getElementById('meta').innerHTML = bits.join(' · ') || '';
+
+    // proba B/M
+    probsT.innerHTML = '';
+    [["B", data.probabilities[0]], ["M", data.probabilities[1]]].forEach(([lbl,p])=>{
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${esc(lbl)}</td><td>${fmtPct(p)}</td>`;
+      probsT.appendChild(tr);
+    });
+
+    // JSON brut
+    rawPre.textContent = JSON.stringify(raw, null, 2);
+
+    status.textContent = "OK";
+    summary.style.display = '';
+  }
+
+  document.addEventListener('DOMContentLoaded', render);
+
+  </script>
+</body>
+</html>
